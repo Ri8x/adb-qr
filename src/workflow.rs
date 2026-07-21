@@ -35,8 +35,9 @@ fn handle_pair(args: PairArgs) -> Result<i32, AppError> {
     if connected {
         println!("Pairing succeeded and the device is visible in adb.");
     } else {
-        println!("Pairing succeeded, but the device is not visible in adb yet.");
-        println!("Run `adb devices` again in a few seconds.");
+        println!("Pairing succeeded, but no wireless connection service was discovered.");
+        println!("Keep Wireless Debugging enabled, then run `adb connect <device-ip>:<connection-port>`.");
+        println!("Use the IP address and port shown on the main Wireless Debugging screen, not the pairing port.");
     }
 
     Ok(0)
@@ -78,11 +79,7 @@ fn handle_qr(args: QrArgs) -> Result<i32, AppError> {
     Ok(0)
 }
 
-fn run_qr_pair(
-    adb: &Adb,
-    args: &PairArgs,
-    baseline: &HashSet<String>,
-) -> Result<bool, AppError> {
+fn run_qr_pair(adb: &Adb, args: &PairArgs, baseline: &HashSet<String>) -> Result<bool, AppError> {
     let payload = qr::PairingPayload::generate();
     let png_path = write_pair_png(&payload.payload)?;
 
@@ -103,7 +100,31 @@ fn run_qr_pair(
         adb.wait_for_pairing_service(&payload.service_name, Duration::from_secs(args.timeout))?;
     println!("Pairing with {}...", service.endpoint);
     adb.pair(&service.endpoint, &payload.secret)?;
-    adb.wait_for_device(baseline, Duration::from_secs(10))
+    if adb.wait_for_device(baseline, Duration::from_secs(2))? {
+        return Ok(true);
+    }
+
+    println!("Pairing succeeded. Looking for the wireless connection service...");
+    let connect_service =
+        match adb.wait_for_connect_service(&service.endpoint, Duration::from_secs(8)) {
+            Ok(service) => service,
+            Err(error) => {
+                eprintln!("Warning: {}", error.message);
+                return Ok(false);
+            }
+        };
+
+    let Some(connect_service) = connect_service else {
+        return Ok(false);
+    };
+
+    println!("Connecting to {}...", connect_service.endpoint);
+    if let Err(error) = adb.connect(&connect_service.endpoint) {
+        eprintln!("Warning: {}", error.message);
+        return Ok(false);
+    }
+
+    adb.wait_for_device(baseline, Duration::from_secs(5))
 }
 
 fn write_pair_png(payload: &str) -> Result<PathBuf, AppError> {

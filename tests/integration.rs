@@ -44,6 +44,9 @@ case "$command" in
       case "$SCENARIO" in
         qr_success|partial_success)
           printf '%s\t_adb-tls-pairing._tcp\t192.168.0.5:37123\n' "$SERVICE_NAME"
+          if [ -f "$STATE_FILE" ] && [ "$SCENARIO" = "qr_success" ]; then
+            printf 'adb-TESTGUID\t_adb-tls-connect._tcp\t192.168.0.5:43210\n'
+          fi
           ;;
         timeout)
           :
@@ -53,12 +56,20 @@ case "$command" in
     fi
     ;;
   pair)
-    printf 'paired=1\n' > "$STATE_FILE"
+    printf 'paired\n' > "$STATE_FILE"
     echo "Successfully paired to $1 [guid=adb-TESTGUID]"
+    ;;
+  connect)
+    if [ "$1" != "192.168.0.5:43210" ]; then
+      echo "failed to connect to $1" >&2
+      exit 1
+    fi
+    printf 'connected\n' > "$STATE_FILE"
+    echo "connected to $1"
     ;;
   devices)
     echo "List of devices attached"
-    if [ -f "$STATE_FILE" ] && [ "$SCENARIO" != "partial_success" ]; then
+    if [ -f "$STATE_FILE" ] && [ "$(cat "$STATE_FILE")" = "connected" ]; then
       echo "adb-TESTGUID._adb-tls-connect._tcp	device"
     fi
     ;;
@@ -113,6 +124,10 @@ fn qr_pair_happy_path_prints_success() {
         stdout.contains("Pairing succeeded and the device is visible in adb."),
         "stdout: {stdout}"
     );
+    assert!(
+        stdout.contains("Connecting to 192.168.0.5:43210..."),
+        "stdout: {stdout}"
+    );
 }
 
 #[test]
@@ -122,8 +137,15 @@ fn qr_pair_timeout_returns_timeout_exit_code() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    assert_eq!(output.status.code(), Some(3), "stdout: {stdout}\nstderr: {stderr}");
-    assert!(stderr.contains("timed out waiting for pairing service"), "stderr: {stderr}");
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("timed out waiting for pairing service"),
+        "stderr: {stderr}"
+    );
 }
 
 #[test]
@@ -134,7 +156,7 @@ fn partial_success_still_exits_zero() {
 
     assert_eq!(output.status.code(), Some(0), "stdout: {stdout}");
     assert!(
-        stdout.contains("Pairing succeeded, but the device is not visible in adb yet."),
+        stdout.contains("Pairing succeeded, but no wireless connection service was discovered."),
         "stdout: {stdout}"
     );
 }
@@ -146,8 +168,14 @@ fn qr_command_prints_payload() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert_eq!(output.status.code(), Some(0), "stdout: {stdout}");
-    assert!(stdout.contains("Service name: adb-qr-testsvc"), "stdout: {stdout}");
-    assert!(stdout.contains("Payload: WIFI:T:ADB;S:adb-qr-testsvc;"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("Service name: adb-qr-testsvc"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("Payload: WIFI:T:ADB;S:adb-qr-testsvc;"),
+        "stdout: {stdout}"
+    );
 }
 
 #[test]

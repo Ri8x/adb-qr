@@ -152,7 +152,11 @@ fn module_with_border(qr: &QrCode, x: i32, y: i32) -> bool {
 fn random_string(length: usize, alphabet: &[u8]) -> String {
     let mut rng = thread_rng();
     (0..length)
-        .map(|_| *alphabet.choose(&mut rng).expect("alphabet must not be empty") as char)
+        .map(|_| {
+            *alphabet
+                .choose(&mut rng)
+                .expect("alphabet must not be empty") as char
+        })
         .collect()
 }
 

@@ -7,6 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 pub const MDNS_PAIRING_SERVICE: &str = "_adb-tls-pairing._tcp";
+pub const MDNS_CONNECT_SERVICE: &str = "_adb-tls-connect._tcp";
 
 #[derive(Debug, Clone)]
 pub struct Adb {
@@ -71,6 +72,28 @@ impl Adb {
             .collect())
     }
 
+    pub fn wait_for_connect_service(
+        &self,
+        pairing_endpoint: &str,
+        timeout: Duration,
+    ) -> Result<Option<MdnsService>, AppError> {
+        let start = Instant::now();
+        let pairing_host = endpoint_host(pairing_endpoint);
+
+        while start.elapsed() < timeout {
+            let service = self.list_mdns_services()?.into_iter().find(|service| {
+                service.service_type == MDNS_CONNECT_SERVICE
+                    && endpoint_host(&service.endpoint) == pairing_host
+            });
+            if service.is_some() {
+                return Ok(service);
+            }
+            thread::sleep(Duration::from_secs(1));
+        }
+
+        Ok(None)
+    }
+
     pub fn wait_for_pairing_service(
         &self,
         service_name: &str,
@@ -94,6 +117,17 @@ impl Adb {
     pub fn pair(&self, endpoint: &str, code: &str) -> Result<(), AppError> {
         self.run_text(&["pair", endpoint, code])?;
         Ok(())
+    }
+
+    pub fn connect(&self, endpoint: &str) -> Result<(), AppError> {
+        let output = self.run_text(&["connect", endpoint])?;
+        if output.starts_with("connected to ") || output.starts_with("already connected to ") {
+            Ok(())
+        } else {
+            Err(AppError::adb(format!(
+                "adb connect {endpoint} failed: {output}"
+            )))
+        }
     }
 
     pub fn device_set(&self) -> Result<HashSet<String>, AppError> {
@@ -195,6 +229,13 @@ pub fn parse_devices(output: &str) -> Vec<String> {
         .collect()
 }
 
+fn endpoint_host(endpoint: &str) -> &str {
+    endpoint
+        .rsplit_once(':')
+        .map(|(host, _)| host.trim_matches(['[', ']']))
+        .unwrap_or(endpoint)
+}
+
 fn adb_binary_name() -> &'static str {
     if cfg!(windows) {
         "adb.exe"
@@ -216,7 +257,10 @@ fn common_adb_paths() -> Vec<PathBuf> {
     if let Some(home) = home_dir() {
         candidates.push(home.join("Library/Android/sdk/platform-tools").join(binary));
         candidates.push(home.join("Android/Sdk/platform-tools").join(binary));
-        candidates.push(home.join("AppData/Local/Android/Sdk/platform-tools").join(binary));
+        candidates.push(
+            home.join("AppData/Local/Android/Sdk/platform-tools")
+                .join(binary),
+        );
     }
 
     if let Ok(local_app_data) = env::var("LOCALAPPDATA") {
@@ -259,5 +303,11 @@ mod tests {
 
         assert_eq!(devices.len(), 2);
         assert!(devices[0].contains("adb-ABC123"));
+    }
+
+    #[test]
+    fn extracts_ipv4_and_ipv6_endpoint_hosts() {
+        assert_eq!(endpoint_host("192.168.0.5:37123"), "192.168.0.5");
+        assert_eq!(endpoint_host("[fe80::1234]:37123"), "fe80::1234");
     }
 }
