@@ -15,6 +15,26 @@
 - Primary flow: QR-based pairing
 - Older Android `adb tcpip` flows are out of scope
 
+## Installation
+
+Download the latest macOS archive and its `.sha256` file from
+[GitHub Releases](https://github.com/Ri8x/adb-qr/releases). Each archive contains
+the universal `adb-qr` executable for Apple Silicon and Intel Macs, this README,
+and the license.
+
+Verify and extract the download, replacing `<release>` with the downloaded
+release name:
+
+```bash
+shasum -a 256 -c adb-qr-<release>-macos-universal.tar.gz.sha256
+tar -xzf adb-qr-<release>-macos-universal.tar.gz
+sudo install -m 0755 adb-qr /usr/local/bin/adb-qr
+adb-qr --version
+```
+
+`adb-qr` is currently unsigned, so macOS may require confirmation before it can
+run. The tool also requires `adb` from Android SDK Platform Tools to be installed.
+
 ## Development
 
 Build and test locally with the standard Rust toolchain.
@@ -78,5 +98,5 @@ adb-qr qr --svg pairing.svg --png pairing.png --print-payload
 
 ## Project Notes
 
-- Public release artifacts should be single binaries.
+- Release archives contain a universal macOS binary, README, and license.
 - The repository includes `TODO.md` for later platform and packaging follow-up.

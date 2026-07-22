@@ -28,6 +28,17 @@ jobs:
       - name: Run tests
         run: cargo test --locked
 
+      - name: Determine release metadata
+        id: release
+        shell: bash
+        run: |
+          VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          TAG="v${VERSION}-main.${GITHUB_RUN_NUMBER}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "name=adb-qr ${VERSION} (${SHORT_SHA})" >> "$GITHUB_OUTPUT"
+          echo "archive=adb-qr-${TAG}-macos-universal.tar.gz" >> "$GITHUB_OUTPUT"
+
       - name: Build macOS binaries
         run: |
           cargo build --locked --release --target aarch64-apple-darwin
@@ -35,37 +46,32 @@ jobs:
 
       - name: Create universal binary
         run: |
-          mkdir -p dist
+          mkdir -p release
           lipo -create \
             target/aarch64-apple-darwin/release/adb-qr \
             target/x86_64-apple-darwin/release/adb-qr \
-            -output dist/adb-qr
-          chmod +x dist/adb-qr
-          dist/adb-qr --version
+            -output release/adb-qr
+          chmod +x release/adb-qr
+          release/adb-qr --version
 
       - name: Package release
+        env:
+          RELEASE_ARCHIVE: ${{ steps.release.outputs.archive }}
         run: |
-          tar -C dist -czf adb-qr-macos-universal.tar.gz adb-qr
-          shasum -a 256 adb-qr-macos-universal.tar.gz > adb-qr-macos-universal.tar.gz.sha256
-
-      - name: Determine release tag
-        id: release
-        shell: bash
-        run: |
-          VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
-          SHORT_SHA="${GITHUB_SHA::7}"
-          echo "tag=v${VERSION}-main.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
-          echo "name=adb-qr ${VERSION} (${SHORT_SHA})" >> "$GITHUB_OUTPUT"
+          cp README.md LICENSE release/
+          tar -C release -czf "$RELEASE_ARCHIVE" adb-qr README.md LICENSE
+          shasum -a 256 "$RELEASE_ARCHIVE" > "${RELEASE_ARCHIVE}.sha256"
 
       - name: Create GitHub prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           RELEASE_NAME: ${{ steps.release.outputs.name }}
+          RELEASE_ARCHIVE: ${{ steps.release.outputs.archive }}
         run: |
           gh release create "$RELEASE_TAG" \
-            adb-qr-macos-universal.tar.gz \
-            adb-qr-macos-universal.tar.gz.sha256 \
+            "$RELEASE_ARCHIVE" \
+            "${RELEASE_ARCHIVE}.sha256" \
             --target "$GITHUB_SHA" \
             --title "$RELEASE_NAME" \
             --generate-notes \
