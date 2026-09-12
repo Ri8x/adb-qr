@@ -15,7 +15,44 @@
 - Primary flow: QR-based pairing
 - Older Android `adb tcpip` flows are out of scope
 
-## Installation
+## Installation on macOS (Homebrew)
+
+Install on Apple Silicon or Intel Macs with macOS 11 or later:
+
+```bash
+brew tap ri8x/adb-qr https://github.com/Ri8x/adb-qr
+brew install --cask android-platform-tools
+brew install ri8x/adb-qr/adb-qr
+adb-qr
+```
+
+Skip the platform-tools install if you already have `adb` available. Homebrew
+links `adb-qr` into its bin directory, so you can run it from any directory with
+no Rust toolchain or manual `sudo` copy. Homebrew must already be installed and
+on your `PATH`; follow [Homebrew's setup instructions](https://brew.sh).
+
+The project-maintained tap verifies downloads with SHA-256 checksums. The
+executable is not Developer ID signed or notarized.
+
+To update or remove it:
+
+```bash
+brew update
+brew upgrade ri8x/adb-qr/adb-qr
+brew uninstall ri8x/adb-qr/adb-qr
+```
+
+### First pairing
+
+1. Connect your Mac and Android 11+ phone to the same Wi-Fi network.
+2. Enable Developer options on the phone, then enable Wireless debugging.
+3. Run `adb-qr` on your Mac.
+4. On the phone, select **Pair device with QR code** and scan the terminal QR.
+5. Confirm the connection with `adb devices`.
+
+If the terminal QR is hard to scan, open the PNG path printed by the command.
+
+### Manual download
 
 Download the latest macOS archive and its `.sha256` file from
 [GitHub Releases](https://github.com/Ri8x/adb-qr/releases). Each archive contains
@@ -96,7 +133,7 @@ adb-qr qr --svg pairing.svg --png pairing.png --print-payload
 - If pairing succeeds but the device does not appear immediately, run `adb devices` after a few seconds. The tool reports that state as a partial success instead of silently failing.
 - Some OEM skins expose Wireless Debugging behind additional developer-option menus. The tool cannot enable that setting for you.
 
-## Project Notes
+## Contributing
 
-- Release archives contain a universal macOS binary, README, and license.
-- The repository includes `TODO.md` for later platform and packaging follow-up.
+See [TODO.md](TODO.md) for planned work and the [release guide](docs/RELEASING.md)
+for packaging and release validation.

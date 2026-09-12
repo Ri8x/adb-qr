@@ -10,11 +10,13 @@
 
 - Add GitHub release workflow for macOS signed binaries.
 - Add Linux and Windows release artifacts after host validation is complete.
-- Add Homebrew tap formula once the binary release flow is stable.
+- Publish the checked-in Homebrew formula and verify installation from the public tap on Apple Silicon and Intel.
+- Publish the first stable version tag; the tap currently pins the existing `0.1.0-main.2` prerelease.
+- Update the formula URL, version, and checksum after each tested release (currently manual).
 - Evaluate Scoop and WinGet after Windows validation.
 
 ## Testing
 
 - Expand integration coverage beyond Unix shell-based fake `adb`.
 - Add Windows-native fake `adb` integration tests.
-- Add real-device smoke-test documentation for contributors.
+- Run and record the real-device smoke test documented in `docs/RELEASING.md` on Apple Silicon and Intel.
