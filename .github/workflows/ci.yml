@@ -15,4 +15,15 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run tests
-        run: cargo test
+        run: cargo test --locked
+
+  homebrew:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install and test the macOS package
+        run: |
+          brew tap ri8x/adb-qr "$GITHUB_WORKSPACE"
+          brew install ri8x/adb-qr/adb-qr
+          brew test ri8x/adb-qr/adb-qr
+          adb-qr --version
