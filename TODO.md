@@ -10,8 +10,7 @@
 
 - Add GitHub release workflow for macOS signed binaries.
 - Add Linux and Windows release artifacts after host validation is complete.
-- Publish the checked-in Homebrew formula and verify installation from the public tap on Apple Silicon and Intel.
-- Publish the first stable version tag; the tap currently pins the existing `0.1.0-main.2` prerelease.
+- Verify installation from the public tap on Apple Silicon and Intel.
 - Update the formula URL, version, and checksum after each tested release (currently manual).
 - Evaluate Scoop and WinGet after Windows validation.
 

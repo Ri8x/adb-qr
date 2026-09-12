@@ -1,9 +1,9 @@
 class AdbQr < Formula
   desc "Pair Android devices over wireless ADB using a QR code"
   homepage "https://github.com/Ri8x/adb-qr"
-  url "https://github.com/Ri8x/adb-qr/releases/download/v0.1.0-main.2/adb-qr-v0.1.0-main.2-macos-universal.tar.gz"
-  version "0.1.0-main.2"
-  sha256 "6e713d98c47411b178aff42481c7e9edf2fe025f743a24f0ca8cba4b22f32e87"
+  url "https://github.com/Ri8x/adb-qr/releases/download/v0.1.0/adb-qr-v0.1.0-macos-universal.tar.gz"
+  version "0.1.0"
+  sha256 "feed1ac05994cfbaad3b3f10590b479b7fb7c526a8bf1029f5061af7b8088607"
   license "MIT"
 
   depends_on macos: :big_sur
