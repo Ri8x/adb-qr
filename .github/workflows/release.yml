@@ -3,12 +3,13 @@ name: Release
 on:
   push:
     branches: [main]
+    tags: ['v*']
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-main
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -35,6 +36,16 @@ jobs:
           VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
           SHORT_SHA="${GITHUB_SHA::7}"
           TAG="v${VERSION}-main.${GITHUB_RUN_NUMBER}"
+          PRERELEASE=true
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="$GITHUB_REF_NAME"
+            if [[ "$TAG" != "v${VERSION}" ]]; then
+              echo "Stable release tag must match Cargo.toml: v${VERSION}" >&2
+              exit 1
+            fi
+            PRERELEASE=false
+          fi
+          echo "prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "name=adb-qr ${VERSION} (${SHORT_SHA})" >> "$GITHUB_OUTPUT"
           echo "archive=adb-qr-${TAG}-macos-universal.tar.gz" >> "$GITHUB_OUTPUT"
@@ -62,12 +73,13 @@ jobs:
           tar -C release -czf "$RELEASE_ARCHIVE" adb-qr README.md LICENSE
           shasum -a 256 "$RELEASE_ARCHIVE" > "${RELEASE_ARCHIVE}.sha256"
 
-      - name: Create GitHub prerelease
+      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           RELEASE_NAME: ${{ steps.release.outputs.name }}
           RELEASE_ARCHIVE: ${{ steps.release.outputs.archive }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
         run: |
           gh release create "$RELEASE_TAG" \
             "$RELEASE_ARCHIVE" \
@@ -75,4 +87,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "$RELEASE_NAME" \
             --generate-notes \
-            --prerelease
+            --prerelease="$PRERELEASE"
