@@ -121,16 +121,20 @@ impl Adb {
     ) -> Result<MdnsService, AppError> {
         let start = Instant::now();
         let grace = fallback_grace(timeout);
+        let mut observed = Vec::new();
 
         while start.elapsed() < timeout {
-            let services = self.list_pairing_services()?;
+            observed = self.list_mdns_services()?;
+            let services = observed
+                .iter()
+                .filter(|service| service.service_type == MDNS_PAIRING_SERVICE);
 
             // Only consider an unrecognised service once the exact name has had
             // time to show up; a concurrent pairing session on the same device
             // would otherwise be picked over the one the user just scanned.
             let allow_fallback = start.elapsed() >= grace;
             if let Some(service) =
-                select_pairing_service(services.iter(), service_name, baseline, allow_fallback)
+                select_pairing_service(services, service_name, baseline, allow_fallback)
             {
                 return Ok(service);
             }
@@ -139,7 +143,8 @@ impl Adb {
         }
 
         Err(AppError::timeout(format!(
-            "timed out waiting for pairing service `{service_name}` to appear in adb mDNS discovery"
+            "timed out waiting for pairing service `{service_name}` to appear in adb mDNS discovery\n{}",
+            describe_observed(&observed)
         )))
     }
 
@@ -250,6 +255,26 @@ where
 /// newly advertised pairing service.
 fn fallback_grace(timeout: Duration) -> Duration {
     (timeout / 3).min(Duration::from_secs(15))
+}
+
+/// Render what adb actually discovered, so a timeout is diagnosable from a
+/// single run rather than needing a separate debugging session.
+fn describe_observed(services: &[MdnsService]) -> String {
+    if services.is_empty() {
+        return "adb reported no mDNS services at all. Check that the device is on the same \
+network, that Wireless debugging is still open on the pairing screen, and that a firewall \
+is not blocking mDNS (UDP 5353)."
+            .to_string();
+    }
+
+    let mut text = String::from("adb last reported these mDNS services:");
+    for service in services {
+        text.push_str(&format!(
+            "\n  {} {} {}",
+            service.name, service.service_type, service.endpoint
+        ));
+    }
+    text
 }
 
 pub fn parse_mdns_services(output: &str) -> Vec<MdnsService> {
@@ -433,6 +458,15 @@ mod tests {
             fallback_grace(Duration::from_secs(9)),
             Duration::from_secs(3)
         );
+    }
+
+    #[test]
+    fn timeout_diagnostics_list_observed_services() {
+        let described = describe_observed(&[pairing("studio-seen")]);
+        assert!(described.contains("studio-seen"));
+        assert!(described.contains(MDNS_PAIRING_SERVICE));
+
+        assert!(describe_observed(&[]).contains("5353"));
     }
 
     #[test]
