@@ -94,18 +94,47 @@ impl Adb {
         Ok(None)
     }
 
+    /// Names of the pairing services adb already knows about.
+    ///
+    /// Captured before the QR code is displayed so that any pairing service
+    /// appearing afterwards can be attributed to the scan we just triggered.
+    pub fn pairing_service_names(&self) -> Result<HashSet<String>, AppError> {
+        Ok(self
+            .list_pairing_services()?
+            .into_iter()
+            .map(|service| service.name)
+            .collect())
+    }
+
+    /// Wait for the pairing service created by scanning our QR code.
+    ///
+    /// Prefers an exact name match, but falls back to any pairing service that
+    /// was not present in `baseline`. adb does not always advertise the service
+    /// under the name we embedded in the payload, and insisting on an exact
+    /// match there means ignoring the very service the user just created while
+    /// their phone sits waiting on the pairing screen.
     pub fn wait_for_pairing_service(
         &self,
         service_name: &str,
+        baseline: &HashSet<String>,
         timeout: Duration,
     ) -> Result<MdnsService, AppError> {
         let start = Instant::now();
+        let grace = fallback_grace(timeout);
 
         while start.elapsed() < timeout {
             let services = self.list_pairing_services()?;
-            if let Some(service) = services.into_iter().find(|item| item.name == service_name) {
+
+            // Only consider an unrecognised service once the exact name has had
+            // time to show up; a concurrent pairing session on the same device
+            // would otherwise be picked over the one the user just scanned.
+            let allow_fallback = start.elapsed() >= grace;
+            if let Some(service) =
+                select_pairing_service(services.iter(), service_name, baseline, allow_fallback)
+            {
                 return Ok(service);
             }
+
             thread::sleep(Duration::from_secs(1));
         }
 
@@ -190,6 +219,37 @@ impl Adb {
                 ))
             })
     }
+}
+
+/// Pick the pairing service that belongs to this run: an exact name match
+/// first, otherwise any pairing service that was not already advertised.
+fn select_pairing_service<'a, I>(
+    services: I,
+    service_name: &str,
+    baseline: &HashSet<String>,
+    allow_fallback: bool,
+) -> Option<MdnsService>
+where
+    I: Iterator<Item = &'a MdnsService>,
+{
+    let mut fallback = None;
+
+    for service in services {
+        if service.name == service_name {
+            return Some(service.clone());
+        }
+        if allow_fallback && fallback.is_none() && !baseline.contains(&service.name) {
+            fallback = Some(service.clone());
+        }
+    }
+
+    fallback
+}
+
+/// How long to hold out for an exact name match before considering any other
+/// newly advertised pairing service.
+fn fallback_grace(timeout: Duration) -> Duration {
+    (timeout / 3).min(Duration::from_secs(15))
 }
 
 pub fn parse_mdns_services(output: &str) -> Vec<MdnsService> {
@@ -303,6 +363,76 @@ mod tests {
 
         assert_eq!(devices.len(), 2);
         assert!(devices[0].contains("adb-ABC123"));
+    }
+
+    fn pairing(name: &str) -> MdnsService {
+        MdnsService {
+            name: name.to_string(),
+            service_type: MDNS_PAIRING_SERVICE.to_string(),
+            endpoint: "192.168.0.5:37123".to_string(),
+        }
+    }
+
+    #[test]
+    fn prefers_the_exact_service_name() {
+        let services = [pairing("studio-other"), pairing("studio-wanted")];
+        let selected =
+            select_pairing_service(services.iter(), "studio-wanted", &HashSet::new(), true)
+                .expect("hit");
+
+        assert_eq!(selected.name, "studio-wanted");
+    }
+
+    #[test]
+    fn falls_back_to_a_newly_advertised_service() {
+        let services = [pairing("studio-wanted (2)")];
+        let selected =
+            select_pairing_service(services.iter(), "studio-wanted", &HashSet::new(), true)
+                .expect("fallback");
+
+        assert_eq!(selected.name, "studio-wanted (2)");
+    }
+
+    #[test]
+    fn ignores_services_present_before_the_scan() {
+        let baseline: HashSet<String> = ["studio-stale".to_string()].into_iter().collect();
+        let services = [pairing("studio-stale")];
+
+        assert!(
+            select_pairing_service(services.iter(), "studio-wanted", &baseline, true).is_none()
+        );
+    }
+
+    #[test]
+    fn fallback_is_withheld_during_the_grace_period() {
+        let services = [pairing("studio-someone-else")];
+
+        assert!(
+            select_pairing_service(services.iter(), "studio-wanted", &HashSet::new(), false)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn exact_match_still_wins_during_the_grace_period() {
+        let services = [pairing("studio-wanted")];
+        let selected =
+            select_pairing_service(services.iter(), "studio-wanted", &HashSet::new(), false)
+                .expect("exact match");
+
+        assert_eq!(selected.name, "studio-wanted");
+    }
+
+    #[test]
+    fn fallback_grace_is_capped() {
+        assert_eq!(
+            fallback_grace(Duration::from_secs(90)),
+            Duration::from_secs(15)
+        );
+        assert_eq!(
+            fallback_grace(Duration::from_secs(9)),
+            Duration::from_secs(3)
+        );
     }
 
     #[test]

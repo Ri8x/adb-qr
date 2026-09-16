@@ -82,6 +82,7 @@ fn handle_qr(args: QrArgs) -> Result<i32, AppError> {
 fn run_qr_pair(adb: &Adb, args: &PairArgs, baseline: &HashSet<String>) -> Result<bool, AppError> {
     let payload = qr::PairingPayload::generate();
     let png_path = write_pair_png(&payload.payload)?;
+    let pairing_baseline = adb.pairing_service_names().unwrap_or_default();
 
     println!("Open Wireless Debugging on your device and choose \"Pair device with QR code\".");
     println!("QR image: {}", png_path.display());
@@ -96,8 +97,17 @@ fn run_qr_pair(adb: &Adb, args: &PairArgs, baseline: &HashSet<String>) -> Result
         payload.service_name
     );
 
-    let service =
-        adb.wait_for_pairing_service(&payload.service_name, Duration::from_secs(args.timeout))?;
+    let service = adb.wait_for_pairing_service(
+        &payload.service_name,
+        &pairing_baseline,
+        Duration::from_secs(args.timeout),
+    )?;
+    if service.name != payload.service_name {
+        println!(
+            "Note: adb advertised the pairing service as `{}` rather than `{}`; trying it.",
+            service.name, payload.service_name
+        );
+    }
     println!("Pairing with {}...", service.endpoint);
     adb.pair(&service.endpoint, &payload.secret)?;
     if adb.wait_for_device(baseline, Duration::from_secs(2))? {
