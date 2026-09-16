@@ -1,4 +1,4 @@
-use crate::adb::Adb;
+use crate::adb::{Adb, MdnsService};
 use crate::cli::{Cli, Commands, PairArgs, QrArgs};
 use crate::error::AppError;
 use crate::qr;
@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::env;
 use std::io::IsTerminal;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub fn execute(cli: Cli) -> i32 {
     let result = match cli.command {
@@ -97,19 +97,7 @@ fn run_qr_pair(adb: &Adb, args: &PairArgs, baseline: &HashSet<String>) -> Result
         payload.service_name
     );
 
-    let service = adb.wait_for_pairing_service(
-        &payload.service_name,
-        &pairing_baseline,
-        Duration::from_secs(args.timeout),
-    )?;
-    if service.name != payload.service_name {
-        println!(
-            "Note: adb advertised the pairing service as `{}` rather than `{}`; trying it.",
-            service.name, payload.service_name
-        );
-    }
-    println!("Pairing with {}...", service.endpoint);
-    adb.pair(&service.endpoint, &payload.secret)?;
+    let service = pair_with_retry(adb, &payload, pairing_baseline, args.timeout)?;
     if adb.wait_for_device(baseline, Duration::from_secs(2))? {
         return Ok(true);
     }
@@ -135,6 +123,57 @@ fn run_qr_pair(adb: &Adb, args: &PairArgs, baseline: &HashSet<String>) -> Result
     }
 
     adb.wait_for_device(baseline, Duration::from_secs(5))
+}
+
+/// Pair against the service our QR produced.
+///
+/// A device can advertise more than one pairing service at once (a leftover
+/// "pair with code" dialog, or an abandoned earlier scan). If we fall back to
+/// one of those, our secret will not match it, so record it and keep waiting
+/// for the real one rather than giving up on the whole run.
+fn pair_with_retry(
+    adb: &Adb,
+    payload: &qr::PairingPayload,
+    mut baseline: HashSet<String>,
+    timeout: u64,
+) -> Result<MdnsService, AppError> {
+    let deadline = Instant::now() + Duration::from_secs(timeout);
+
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(AppError::timeout(format!(
+                "timed out waiting for pairing service `{}` to appear in adb mDNS discovery",
+                payload.service_name
+            )));
+        }
+
+        let service = adb.wait_for_pairing_service(&payload.service_name, &baseline, remaining)?;
+        let exact = service.name == payload.service_name;
+        if !exact {
+            println!(
+                "Note: adb advertised the pairing service as `{}` rather than `{}`; trying it.",
+                service.name, payload.service_name
+            );
+        }
+
+        println!("Pairing with {}...", service.endpoint);
+        match adb.pair(&service.endpoint, &payload.secret) {
+            Ok(()) => return Ok(service),
+            Err(error) if !exact => {
+                eprintln!(
+                    "Warning: `{}` rejected our pairing secret ({}).",
+                    service.name, error.message
+                );
+                eprintln!(
+                    "It is a different pairing session. Close any other pairing dialog on the device; still waiting for `{}`.",
+                    payload.service_name
+                );
+                baseline.insert(service.name);
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 fn write_pair_png(payload: &str) -> Result<PathBuf, AppError> {
